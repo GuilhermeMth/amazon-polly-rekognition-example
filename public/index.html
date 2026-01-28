@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionVoice</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Crimson+Pro:wght@300;400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>VisionVoice</h1>
+            <p class="subtitle">Transforme imagens em narrativas de áudio com IA</p>
+        </header>
+        
+        <div class="card">
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">📸</div>
+                <div class="upload-text">Clique ou arraste uma imagem</div>
+                <div class="upload-hint">Formatos: JPG, PNG, GIF • Máximo: 5MB</div>
+                <input type="file" id="fileInput" accept="image/*">
+            </div>
+            
+            <div class="config-section">
+                <h3 class="config-title">Configurações</h3>
+                
+                <div class="input-group">
+                    <label for="voice">Voz do Narrador</label>
+                    <select id="voice">
+                        <option value="Camila">Camila (Feminina - BR)</option>
+                        <option value="Vitoria">Vitoria (Feminina - BR)</option>
+                        <option value="Ricardo">Ricardo (Masculina - BR)</option>
+                    </select>
+                </div>
+                
+                <button class="btn" id="processBtn" disabled>
+                    <span>Analisar Imagem</span>
+                </button>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div class="loading-text">Processando sua imagem...</div>
+            </div>
+            
+            <div class="error" id="error"></div>
+            
+            <div class="preview-section" id="previewSection">
+                <img id="imagePreview" class="image-preview" alt="Preview">
+                
+                <div class="result-box">
+                    <div class="result-title">Análise da Imagem</div>
+                    <div class="result-text" id="resultText"></div>
+                </div>
+                
+                <div class="audio-player">
+                    <button class="play-button" id="playButton">▶</button>
+                    <div class="audio-info">
+                        <div class="audio-title">Áudio Gerado</div>
+                        <div class="audio-status" id="audioStatus">Pronto para reproduzir</div>
+                    </div>
+                </div>
+                <audio id="audioPlayer" style="display: none;"></audio>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

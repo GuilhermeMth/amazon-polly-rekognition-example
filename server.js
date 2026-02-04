@@ -1,161 +1,153 @@
-// server.js
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const { RekognitionClient, DetectLabelsCommand, DetectFacesCommand } = require('@aws-sdk/client-rekognition');
-const { PollyClient, SynthesizeSpeechCommand } = require('@aws-sdk/client-polly');
-const cors = require('cors');
-const path = require('path');
-const { translate } = require('@vitalets/google-translate-api');
+require("dotenv").config();
+
+const express = require("express");
+const multer = require("multer");
+const cors = require("cors");
+const path = require("path");
+
+
+const {
+  REGION,
+  detectLabels,
+  detectFaces,
+  recognizeCelebrities,
+  synthesizeSpeech,
+} = require("./awsServices");
+
+
+const { gerarDescricaoComIA } = require("./descriptionService");
+
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
 
-// Verificar se as credenciais foram carregadas
-if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-    console.error('❌ ERRO: Credenciais AWS não encontradas no arquivo .env');
-    process.exit(1);
-}
 
-console.log('🔑 Credenciais carregadas:');
-console.log('   Access Key ID:', process.env.AWS_ACCESS_KEY_ID.substring(0, 10) + '...');
-console.log('   Region:', process.env.AWS_REGION || 'us-east-1');
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`);
+  next();
+});
 
-// Configurar AWS
-const awsConfig = {
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID.trim(),
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY.trim(),
-    },
-    region: (process.env.AWS_REGION || 'us-east-1').trim()
-};
 
-const rekognitionClient = new RekognitionClient(awsConfig);
-const pollyClient = new PollyClient(awsConfig);
-
-// Função para traduzir texto do inglês para português
-async function translateText(text) {
-    try {
-        const result = await translate(text, { from: 'en', to: 'pt' });
-        return result.text;
-    } catch (error) {
-        console.log('Erro na tradução, usando texto original:', error.message);
-        return text;
+async function processarImagem(req, res) {
+  console.log("🎯 Função processarImagem chamada!");
+  
+  
+  try {
+  
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhuma imagem enviada" });
     }
-}
 
-// Função para analisar a imagem
-async function analyzeImage(imageBytes) {
-    // 1. Detectar labels
-    const detectLabelsCommand = new DetectLabelsCommand({
-        Image: { Bytes: imageBytes },
-        MaxLabels: 10,
-        MinConfidence: 70
+    if (req.file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: "Imagem muito grande. Máximo 5MB." });
+    }
+
+    const imageBytes = req.file.buffer;
+    const voiceId = req.body.voice || req.body.voiceId || "Camila";
+
+    console.log("\n📸 Processando imagem...");
+    console.log(`📦 Tamanho: ${(req.file.size / 1024).toFixed(2)} KB`);
+    console.log(`🎤 Voz: ${voiceId}`);
+
+   
+    const labels = await detectLabels(imageBytes);
+    const faces = await detectFaces(imageBytes);
+    const celebrities = await recognizeCelebrities(imageBytes);
+
+   
+    const descricao = await gerarDescricaoComIA(labels, faces, celebrities);
+
+    
+    const { audioBuffer, audioBase64, audioDataUrl } = await synthesizeSpeech(descricao, voiceId);
+
+    console.log("✅ Processo concluído com sucesso!\n");
+
+    
+    res.json({
+      descricao,
+      audioBase64,
+      audio: audioDataUrl,
+      audioBase64,
+      audio: audioDataUrl,
+      metadata: {
+        tamanhoImagem: req.file.size,
+        tamanhoAudio: audioBuffer.length,
+        voz: voiceId,
+        labelsDetectados: labels.length,
+        facesDetectadas: faces.length,
+      }
     });
-    const labelsData = await rekognitionClient.send(detectLabelsCommand);
 
-    // 2. Detectar rostos
-    let facesData;
-    try {
-        const detectFacesCommand = new DetectFacesCommand({
-            Image: { Bytes: imageBytes },
-            Attributes: ['ALL']
-        });
-        facesData = await rekognitionClient.send(detectFacesCommand);
-    } catch (err) {
-        facesData = { FaceDetails: [] };
-    }
-
-    // 3. Montar descrição em inglês (simples)
-    let description = [];
-
-    // Pessoas
-    if (facesData.FaceDetails.length > 0) {
-        const face = facesData.FaceDetails[0];
-        const gender = face.Gender?.Value === 'Male' ? 'a man' : 'a woman';
-        const ageRange = face.AgeRange ? `around ${face.AgeRange.Low} to ${face.AgeRange.High} years old` : '';
-        const emotion = face.Emotions?.sort((a, b) => b.Confidence - a.Confidence)[0]?.Type.toLowerCase();
-        
-        description.push(`The image shows ${gender} ${ageRange} ${emotion ? 'looking ' + emotion : ''}`);
-    }
-
-    // Objetos principais (top 3)
-    const mainLabels = labelsData.Labels.slice(0, 3).map(l => l.Name).join(', ');
-    if (mainLabels) {
-        description.push(`The scene contains ${mainLabels}`);
-    }
-
-    const englishDescription = description.join('. ') + '.';
-    
-    // 4. Traduzir para português
-    const portugueseDescription = await translateText(englishDescription);
-    
-    return portugueseDescription;
+  } catch (err) {
+    console.error("❌ Erro no processamento:", err);
+    res.status(500).json({ 
+      error: "Erro ao processar imagem", 
+      detalhes: err.message 
+    });
+  }
 }
 
-// Endpoint para processar imagem
-app.post('/api/process-image', upload.single('image'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'Nenhuma imagem enviada' });
-        }
 
-        const voiceId = req.body.voiceId || 'Camila';
-        const imageBytes = req.file.buffer;
+app.post("/analisar", upload.single("image"), processarImagem);
 
-        console.log('📸 Analisando imagem...');
-        const description = await analyzeImage(imageBytes);
-        console.log('📝 Descrição:', description);
 
-        console.log('🔊 Gerando áudio...');
-        const synthesizeSpeechCommand = new SynthesizeSpeechCommand({
-            Text: description,
-            OutputFormat: 'mp3',
-            VoiceId: voiceId,
-            LanguageCode: 'pt-BR'
-        });
-        const pollyData = await pollyClient.send(synthesizeSpeechCommand);
+app.post("/api/process-image", upload.single("image"), processarImagem);
 
-        // Convert stream to buffer for v3
-        const audioChunks = [];
-        for await (const chunk of pollyData.AudioStream) {
-            audioChunks.push(chunk);
-        }
-        const audioBuffer = Buffer.concat(audioChunks);
-        const audioBase64 = audioBuffer.toString('base64');
 
-        res.json({
-            success: true,
-            description: description,
-            audio: `data:audio/mpeg;base64,${audioBase64}`
-        });
-
-        console.log('✅ Concluído!');
-
-    } catch (error) {
-        console.error('❌ Erro:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
+app.get("/api/ia-status", (req, res) => {
+  res.json({
+    iaAtivada: !!process.env.GROQ_API_KEY,
+    modelo: "llama-3.3-70b-versatile",
+    provider: "Groq",
+    funcoes: "Tradução + Reformulação",
+    status: process.env.GROQ_API_KEY ? "🟢 Ativo" : "🔴 Desativado",
+    descricao: process.env.GROQ_API_KEY 
+      ? "IA ativa - Groq faz tradução e reformulação" 
+      : "IA desativada - Configure GROQ_API_KEY",
+    otimizacao: "Removido AWS Translate e dicionário"
+  });
 });
 
-// Servir o frontend
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    versao: "2.0 - Otimizado com Groq"
+  });
 });
 
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+
+app.use(express.static("public"));
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/index.html"));
 });
+
 
 const PORT = process.env.PORT || 3000;
+
+
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+  console.log(`\n🚀 Servidor VisionVoice v2.0 (OTIMIZADO)`);
+  console.log(`🌐 http://localhost:${PORT}`);
+  console.log(`\n📊 Configuração:`);
+  console.log(`   🌎 AWS Região: ${REGION}`);
+  console.log(`   🤖 IA (Groq): ${process.env.GROQ_API_KEY ? '🟢 Ativo' : '🔴 Desativado'}`);
+  console.log(`   ⚡ Otimização: Groq faz tradução + reformulação`);
+  console.log(`\n✅ Melhorias v2.0:`);
+  console.log(`   ❌ Removido: AWS Translate`);
+  console.log(`   ❌ Removido: Dicionário de 646 palavras`);
+  console.log(`   ✅ Groq faz tudo em uma chamada`);
+  console.log(`   ✅ Código mais simples (-40% linhas)`);
+  console.log(`   ✅ Resultado melhor`);
+  console.log(`\n📍 Rotas:`);
+  console.log(`   POST /analisar`);
+  console.log(`   GET  /api/health`);
+  console.log(`   GET  /api/ia-status\n`);
 });
+

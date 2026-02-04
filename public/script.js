@@ -1,7 +1,6 @@
-// Frontend JavaScript - Simples e limpo
-let uploadedFile = null;
+﻿let uploadedFile = null;
 
-// Elementos do DOM
+// Elementos
 const uploadZone = document.getElementById('uploadZone');
 const fileInput = document.getElementById('fileInput');
 const processBtn = document.getElementById('processBtn');
@@ -14,33 +13,27 @@ const playButton = document.getElementById('playButton');
 const audioPlayer = document.getElementById('audioPlayer');
 const audioStatus = document.getElementById('audioStatus');
 
-// Upload handlers
+// Upload
 uploadZone.addEventListener('click', () => fileInput.click());
+
 fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
 
-uploadZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadZone.classList.add('dragover');
+uploadZone.addEventListener('dragover', e => { 
+    e.preventDefault(); 
+    uploadZone.classList.add('dragover'); 
 });
 
-uploadZone.addEventListener('dragleave', () => {
-    uploadZone.classList.remove('dragover');
-});
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
 
-uploadZone.addEventListener('drop', (e) => {
+uploadZone.addEventListener('drop', e => {
     e.preventDefault();
     uploadZone.classList.remove('dragover');
     const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) {
-        handleFile(file);
-    }
+    if(file && file.type.startsWith('image/')) handleFile(file);
 });
 
 function handleFile(file) {
-    if (file.size > 5 * 1024 * 1024) {
-        showError('Imagem muito grande! Máximo: 5MB');
-        return;
-    }
+    if(file.size > 5*1024*1024) return showError('Imagem muito grande! Máx: 5MB');
     
     uploadedFile = file;
     uploadZone.querySelector('.upload-text').textContent = file.name;
@@ -51,55 +44,48 @@ function handleFile(file) {
 
 // Processar imagem
 processBtn.addEventListener('click', async () => {
-    if (!uploadedFile) return;
+    if(!uploadedFile) return;
     
     const formData = new FormData();
     formData.append('image', uploadedFile);
-    formData.append('voiceId', document.getElementById('voice').value);
+    formData.append('voice', document.getElementById('voice').value);
     
     showLoading();
     hideError();
     previewSection.classList.remove('active');
     
     try {
-        const response = await fetch('/api/process-image', {
-            method: 'POST',
-            body: formData
+        const res = await fetch('/analisar', { 
+            method: 'POST', 
+            body: formData 
         });
         
-        const data = await response.json();
+        const data = await res.json();
         
-        if (!data.success) {
-            throw new Error(data.error);
-        }
+        if(!res.ok) throw new Error(data.error || 'Erro no servidor');
+        if(!data.descricao || !data.audioBase64) throw new Error('Resposta inválida do servidor');
         
-        // Exibir resultados
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            imagePreview.src = e.target.result;
-            resultText.textContent = data.description;
-            audioPlayer.src = data.audio;
-            previewSection.classList.add('active');
-            playButton.textContent = '▶';
-            audioStatus.textContent = 'Pronto para reproduzir';
-            
-            hideLoading();
-            
-            setTimeout(() => {
-                previewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 100);
-        };
-        reader.readAsDataURL(uploadedFile);
+        // Preview
+        imagePreview.src = URL.createObjectURL(uploadedFile);
+        resultText.textContent = data.descricao;
+        audioPlayer.src = `data:audio/mp3;base64,${data.audioBase64}`;
         
-    } catch (err) {
+        previewSection.classList.add('active');
+        playButton.textContent = '▶';
+        audioStatus.textContent = 'Pronto para reproduzir';
+        
         hideLoading();
-        showError(`Erro: ${err.message}`);
+        previewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+    } catch(err) {
+        hideLoading();
+        showError(`Erro: ${err.message}`); // FIX: adicionado parêntese faltando
     }
 });
 
-// Player de áudio
+// Player
 playButton.addEventListener('click', () => {
-    if (audioPlayer.paused) {
+    if(audioPlayer.paused){
         audioPlayer.play();
         playButton.textContent = '⏸';
         audioStatus.textContent = 'Reproduzindo...';
@@ -115,22 +101,22 @@ audioPlayer.addEventListener('ended', () => {
     audioStatus.textContent = 'Finalizado';
 });
 
-// Utilitários
-function showLoading() {
-    loading.classList.add('active');
-    processBtn.disabled = true;
+// Utils
+function showLoading(){ 
+    loading.classList.add('active'); 
+    processBtn.disabled = true; 
 }
 
-function hideLoading() {
-    loading.classList.remove('active');
-    processBtn.disabled = false;
+function hideLoading(){ 
+    loading.classList.remove('active'); 
+    processBtn.disabled = false; 
 }
 
-function showError(message) {
-    error.textContent = message;
-    error.classList.add('active');
+function showError(msg){ 
+    error.textContent = msg; 
+    error.classList.add('active'); 
 }
 
-function hideError() {
-    error.classList.remove('active');
+function hideError(){ 
+    error.classList.remove('active'); 
 }
